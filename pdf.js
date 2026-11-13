@@ -110,18 +110,18 @@ function encodePdf(images, title) {
   writeObject(1, "<< /Type /Catalog /Pages 2 0 R >>");
   writeObject(2, `<< /Type /Pages /Count ${images.length} /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] >>`);
 
-  for (const [index, image] of images.entries()) {
+  for (const [index, { jpeg, width, height, pixelWidth, pixelHeight }] of images.entries()) {
     const pageId = pageIds[index];
     const streamId = pageId + 1;
     const imageId = pageId + 2;
     writeObject(pageId,
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /PageImage ${imageId} 0 R >> >> /Contents ${streamId} 0 R >>`);
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /XObject << /PageImage ${imageId} 0 R >> >> /Contents ${streamId} 0 R >>`);
 
-    const commands = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/PageImage Do\nQ\n`;
+    const commands = `q\n${width} 0 0 ${height} 0 0 cm\n/PageImage Do\nQ\n`;
     writeObject(streamId, `<< /Length ${commands.length} >>\nstream\n${commands}endstream`);
     writeObject(imageId,
-      `<< /Type /XObject /Subtype /Image /Width ${pageWidth * resolution} /Height ${pageHeight * resolution} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.size} >>\nstream\n`,
-      image,
+      `<< /Type /XObject /Subtype /Image /Width ${pixelWidth} /Height ${pixelHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.size} >>\nstream\n`,
+      jpeg,
       "\nendstream");
   }
 
@@ -136,8 +136,18 @@ function encodePdf(images, title) {
   return new Blob(chunks, { type: "application/pdf" });
 }
 
-export async function createPdf({ title, pages }) {
-  if (!pages.length) throw new Error("There is no readable text to export.");
+async function pageImage(canvas, width, height) {
+  return {
+    jpeg: await asJpeg(canvas),
+    width,
+    height,
+    pixelWidth: canvas.width,
+    pixelHeight: canvas.height
+  };
+}
+
+export async function createPdf({ title, pages }, renderVisual) {
+  if (!pages.length) throw new Error("There are no readable pages to export.");
 
   const canvas = document.createElement("canvas");
   canvas.width = pageWidth * resolution;
@@ -150,20 +160,37 @@ export async function createPdf({ title, pages }) {
   const images = [];
   try {
     for (const page of pages) {
+      if (renderVisual && page.visual) {
+        const visual = await renderVisual(page);
+        if (visual?.width > 0 && visual.height > 0) {
+          const scale = pageHeight / Math.max(visual.width, visual.height);
+          const width = Number((visual.width * scale).toFixed(3));
+          const height = Number((visual.height * scale).toFixed(3));
+          try {
+            images.push(await pageImage(visual, width, height));
+          } finally {
+            visual.width = 0;
+            visual.height = 0;
+          }
+          continue;
+        }
+      }
+      if (!page.text?.trim()) continue;
       let lines = [];
       let part = 1;
       for (const line of wrapText(context, page.text)) {
         if (lines.length === linesPerPage) {
           drawPage(context, title, page.number, part, images.length + 1, lines);
-          images.push(await asJpeg(canvas));
+          images.push(await pageImage(canvas, pageWidth, pageHeight));
           lines = [];
           part++;
         }
         lines.push(line);
       }
       drawPage(context, title, page.number, part, images.length + 1, lines);
-      images.push(await asJpeg(canvas));
+      images.push(await pageImage(canvas, pageWidth, pageHeight));
     }
+    if (!images.length) throw new Error("There are no readable pages to export.");
     return encodePdf(images, title);
   } finally {
     canvas.width = 0;

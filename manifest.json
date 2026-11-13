@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Open Sesame",
-  "version": "1.1.0",
-  "description": "Export readable Scribd pages as PDF, HTML, or Markdown.",
+  "version": "1.2.0",
+  "description": "Save loaded Scribd embed pages as PDF, HTML, or Markdown.",
   "minimum_chrome_version": "116",
-  "permissions": ["activeTab", "scripting", "downloads"],
+  "permissions": ["activeTab", "scripting", "pageCapture", "downloads"],
   "host_permissions": ["https://www.scribd.com/*"],
   "background": {
     "service_worker": "worker.js",

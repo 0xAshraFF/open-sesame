@@ -1,4 +1,5 @@
 import { getScribdDocument } from "./links.js";
+import { renderVisualPage } from "./visual.js";
 
 const buttons = [...document.querySelectorAll("[data-format]")];
 const status = document.querySelector("#status");
@@ -15,16 +16,27 @@ function escapeHtml(text) {
   })[char]);
 }
 
-function createSnapshot(data) {
-  const sections = data.pages.map(page => (
-    `<section data-page="${page.number}"><h2>Page ${page.number}</h2><div class="text">${escapeHtml(page.text)}</div></section>`
-  ));
+async function createSnapshot(data) {
+  const sections = [];
+  for (const page of data.pages) {
+    const canvas = await renderVisualPage(page);
+    const text = `<div class="text">${escapeHtml(page.text)}</div>`;
+    let content = text;
+    if (canvas) {
+      const bitmap = canvas.toDataURL("image/jpeg", .93);
+      canvas.width = 0;
+      canvas.height = 0;
+      content = `<img src="${bitmap}" alt="Page ${page.number}">`;
+      if (page.text) content += `<details><summary>Page text</summary>${text}</details>`;
+    }
+    sections.push(`<section><h2>Page ${page.number}</h2>${content}</section>`);
+  }
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
   <title>${escapeHtml(data.title)}</title>
   <style>
     body { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #202825;
@@ -32,6 +44,8 @@ function createSnapshot(data) {
     h1 { font-size: 1.7rem; line-height: 1.25; }
     section { border-top: 1px solid #c8d4ce; margin-top: 2rem; padding-top: .75rem; }
     h2 { font-size: 1rem; color: #475650; }
+    img { display: block; max-width: 100%; height: auto; }
+    details { margin-top: .5rem; }
     .text { white-space: pre-wrap; }
   </style>
 </head>
@@ -40,17 +54,6 @@ function createSnapshot(data) {
   ${sections.join("\n  ")}
 </main></body>
 </html>`;
-}
-
-function readSnapshot(html) {
-  const snapshot = new DOMParser().parseFromString(html, "text/html");
-  return {
-    title: snapshot.querySelector("h1").textContent,
-    pages: [...snapshot.querySelectorAll("section[data-page]")].map(section => ({
-      number: section.dataset.page,
-      text: section.querySelector(".text").textContent
-    }))
-  };
 }
 
 function createMarkdown(data) {
@@ -64,12 +67,11 @@ function createMarkdown(data) {
   return new Blob([markdown], { type: "text/markdown;charset=utf-8" });
 }
 
-async function createFile(format, html) {
-  if (format === "html") return new Blob([html], { type: "text/html;charset=utf-8" });
-  const data = readSnapshot(html);
+async function createFile(format, data) {
+  if (format === "html") return new Blob([await createSnapshot(data)], { type: "text/html;charset=utf-8" });
   if (format === "pdf") {
     const { createPdf } = await import("./pdf.js");
-    return createPdf(data);
+    return createPdf(data, renderVisualPage);
   }
   return createMarkdown(data);
 }
@@ -90,7 +92,7 @@ async function initialize() {
   title.textContent = tab.title?.replace(/\s*\|\s*Scribd\s*$/i, "").trim() || `Document ${id}`;
   title.title = title.textContent;
   title.hidden = false;
-  setStatus("Downloads readable pages loaded in the Scribd embed.");
+  setStatus("Saves loaded embed pages for offline use.");
   setButtonsDisabled(false);
 
   for (const button of buttons) {
@@ -102,12 +104,13 @@ async function initialize() {
         const result = await chrome.runtime.sendMessage({
           type: "read-embed",
           sourceUrl: tab.url,
-          sourceTabId: tab.id
+          sourceTabId: tab.id,
+          format
         });
         if (!result?.data) throw new Error(result?.error || "The Scribd embed could not be read.");
         const { data } = result;
         setStatus(`Preparing ${button.textContent}…`);
-        const file = await createFile(format, createSnapshot(data));
+        const file = await createFile(format, data);
         const url = URL.createObjectURL(file);
         try {
           await chrome.downloads.download({

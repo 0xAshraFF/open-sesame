@@ -106,6 +106,57 @@ export function readScribdDocument(expectedId, requireEmbed = false) {
     return text.split("\n").map(line => line.trim()).join("\n").trim();
   }
 
+  function readVisual(page, layers) {
+    const content = page.querySelector(".newpage") ?? page;
+    const bounds = content.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return null;
+
+    const images = [...content.querySelectorAll(".image_layer img")].flatMap(img => {
+      if (!img.complete || !img.naturalWidth || !img.currentSrc || !isReadable(img)) return [];
+      const rect = img.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return [];
+      const clip = getComputedStyle(img).clip.match(/^rect\((.+)\)$/)?.[1].split(/,\s*/);
+      const scaleX = rect.width / (img.offsetWidth || rect.width);
+      const scaleY = rect.height / (img.offsetHeight || rect.height);
+      const clipBounds = clip?.length === 4 ? clip.map((value, index) => {
+        const size = index % 2 ? rect.width : rect.height;
+        if (value === "auto") return index === 1 || index === 2 ? size : 0;
+        return Number.parseFloat(value) * (index % 2 ? scaleX : scaleY);
+      }) : undefined;
+      return [{
+        url: img.currentSrc,
+        left: rect.left - bounds.left,
+        top: rect.top - bounds.top,
+        width: rect.width,
+        height: rect.height,
+        clip: clipBounds?.every(Number.isFinite) ? clipBounds : undefined
+      }];
+    });
+
+    const fragments = layers.flatMap(layer => [...layer.querySelectorAll("span.a, span.g")]).flatMap(span => {
+      if (!span.textContent.trim() || !isReadable(span)) return [];
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const rect = range.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return [];
+      const style = getComputedStyle(span);
+      return [{
+        text: span.textContent,
+        left: rect.left - bounds.left,
+        top: rect.top - bounds.top,
+        width: rect.width,
+        height: rect.height,
+        color: style.color,
+        family: style.fontFamily,
+        weight: style.fontWeight,
+        fontStyle: style.fontStyle
+      }];
+    });
+
+    if (!images.length && !fragments.length) return null;
+    return { width: bounds.width, height: bounds.height, images, fragments };
+  }
+
   const sourcePages = [...viewer.querySelectorAll(".outer_page, .page[data-page-number]")]
     .filter(page => !page.parentElement.closest(".outer_page, .page[data-page-number]"));
   const pages = [];
@@ -113,10 +164,10 @@ export function readScribdDocument(expectedId, requireEmbed = false) {
     if (!isReadable(page)) continue;
     const layers = [...page.querySelectorAll(".text_layer, .text-layer, .textLayer")];
     const text = layers.map(readTextLayer).filter(Boolean).join("\n");
-    if (!text) continue;
+    const visual = readVisual(page, layers);
+    if (!text && !visual?.images.length) continue;
     const number = page.dataset.pageNumber ?? page.id.match(/\d+$/)?.[0] ?? String(index + 1);
-    pages.push({ number: /^\d+$/.test(number) ? number : String(index + 1), text });
+    pages.push({ number: /^\d+$/.test(number) ? number : String(index + 1), text, visual });
   }
   return { title, pages, omitted: sourcePages.length - pages.length };
 }
-
