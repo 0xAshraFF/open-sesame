@@ -1,4 +1,4 @@
-import { readScribdDocument } from "./reader.js";
+import { getScribdDocument } from "./links.js";
 
 const buttons = [...document.querySelectorAll("[data-format]")];
 const status = document.querySelector("#status");
@@ -9,28 +9,22 @@ function setStatus(message, error = false) {
   status.toggleAttribute("data-error", error);
 }
 
-function documentId(url) {
-  const match = url?.match(
-    /^https:\/\/(?:www\.)?scribd\.com\/(?:(?:document|doc|presentation)\/(\d+)(?:[/?#]|$)|embeds\/(\d+)\/content(?:[/?#]|$))/i
-  );
-  return match?.[1] ?? match?.[2];
-}
-
 function escapeHtml(text) {
   return text.replace(/[&<>"']/g, char => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[char]);
 }
 
-function createHtml(data) {
+function createSnapshot(data) {
   const sections = data.pages.map(page => (
-    `<section><h2>Page ${page.number}</h2><div class="text">${escapeHtml(page.text)}</div></section>`
+    `<section data-page="${page.number}"><h2>Page ${page.number}</h2><div class="text">${escapeHtml(page.text)}</div></section>`
   ));
-  const html = `<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
   <title>${escapeHtml(data.title)}</title>
   <style>
     body { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #202825;
@@ -46,7 +40,17 @@ function createHtml(data) {
   ${sections.join("\n  ")}
 </main></body>
 </html>`;
-  return new Blob([html], { type: "text/html;charset=utf-8" });
+}
+
+function readSnapshot(html) {
+  const snapshot = new DOMParser().parseFromString(html, "text/html");
+  return {
+    title: snapshot.querySelector("h1").textContent,
+    pages: [...snapshot.querySelectorAll("section[data-page]")].map(section => ({
+      number: section.dataset.page,
+      text: section.querySelector(".text").textContent
+    }))
+  };
 }
 
 function createMarkdown(data) {
@@ -60,12 +64,14 @@ function createMarkdown(data) {
   return new Blob([markdown], { type: "text/markdown;charset=utf-8" });
 }
 
-async function createFile(format, data) {
+async function createFile(format, html) {
+  if (format === "html") return new Blob([html], { type: "text/html;charset=utf-8" });
+  const data = readSnapshot(html);
   if (format === "pdf") {
     const { createPdf } = await import("./pdf.js");
     return createPdf(data);
   }
-  return format === "html" ? createHtml(data) : createMarkdown(data);
+  return createMarkdown(data);
 }
 
 function setButtonsDisabled(disabled) {
@@ -74,35 +80,34 @@ function setButtonsDisabled(disabled) {
 
 async function initialize() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const id = documentId(tab?.url);
-  if (!Number.isInteger(tab?.id) || !id) {
+  const source = getScribdDocument(tab?.url);
+  if (!Number.isInteger(tab?.id) || !source) {
     setStatus("Open a Scribd document to download it.");
     return;
   }
 
+  const { id } = source;
   title.textContent = tab.title?.replace(/\s*\|\s*Scribd\s*$/i, "").trim() || `Document ${id}`;
   title.title = title.textContent;
   title.hidden = false;
-  setStatus("Downloads text from pages loaded in the viewer.");
+  setStatus("Downloads readable pages loaded in the Scribd embed.");
   setButtonsDisabled(false);
 
   for (const button of buttons) {
     button.addEventListener("click", async () => {
       const format = button.dataset.format;
       setButtonsDisabled(true);
-      setStatus(`Preparing ${button.textContent}…`);
+      setStatus("Loading the Scribd embed… Keep this popup open.");
       try {
-        const [injection] = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: readScribdDocument,
-          args: [id]
+        const result = await chrome.runtime.sendMessage({
+          type: "read-embed",
+          sourceUrl: tab.url,
+          sourceTabId: tab.id
         });
-        const data = injection?.result;
-        if (!data) throw new Error("The viewer could not be read. Reload the document and try again.");
-        if (!data.pages.length) {
-          throw new Error("No readable text found. Wait for the pages to load and check that they contain text.");
-        }
-        const file = await createFile(format, data);
+        if (!result?.data) throw new Error(result?.error || "The Scribd embed could not be read.");
+        const { data } = result;
+        setStatus(`Preparing ${button.textContent}…`);
+        const file = await createFile(format, createSnapshot(data));
         const url = URL.createObjectURL(file);
         try {
           await chrome.downloads.download({

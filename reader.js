@@ -1,14 +1,15 @@
 // This function runs in Chrome's isolated world on the active Scribd tab.
 // It reads the viewer DOM without fetching or changing the page.
-export function readScribdDocument(expectedId) {
+export function readScribdDocument(expectedId, requireEmbed = false) {
   const path = location.pathname;
-  const id = path.match(/^\/(?:document|doc|presentation)\/(\d+)(?:\/|$)/i)?.[1]
-    ?? path.match(/^\/embeds\/(\d+)\/content\/?$/i)?.[1];
+  const embedId = path.match(/^\/embeds\/(\d+)\/content\/?$/i)?.[1];
+  const id = embedId ?? path.match(/^\/(?:document|doc|presentation)\/(\d+)(?:\/|$)/i)?.[1];
 
   if (
     location.protocol !== "https:"
     || !["www.scribd.com", "scribd.com"].includes(location.hostname)
     || id !== expectedId
+    || (requireEmbed && !embedId)
   ) {
     throw new Error("The tab changed. Reopen the extension on the Scribd document.");
   }
@@ -16,8 +17,13 @@ export function readScribdDocument(expectedId) {
   const viewer = document.querySelector(
     ".document_scroller, #document_scroller, #pdf_document_scroll_container"
   );
+  const download = document.querySelector('a[href*="#download"]');
+  const embedTitle = [download?.getAttribute("aria-label"), download?.title]
+    .find(label => /^Download this PDF\s+\S/i.test(label ?? ""))
+    ?.replace(/^Download this PDF\s+/i, "");
+  const browserTitle = document.title.replace(/\s*\|\s*Scribd\s*$/i, "").trim();
   const title = document.querySelector('[data-e2e="doc_page_title"]')?.innerText?.trim()
-    || document.title.replace(/\s*\|\s*Scribd\s*$/i, "").trim() || `Scribd ${id}`;
+    || embedTitle || (/^scribd$/i.test(browserTitle) ? "" : browserTitle) || `Scribd ${id}`;
   if (!viewer) return { title, pages: [], omitted: 0 };
 
   const restrictions = [
@@ -36,7 +42,9 @@ export function readScribdDocument(expectedId) {
       if (current === document.documentElement) break;
     }
     const style = getComputedStyle(element);
-    return style.color !== "transparent" && !/[,/]\s*0\s*\)$/.test(style.color);
+    return style.color !== "transparent"
+      && !/^rgba\([^)]*,\s*0(?:\.0+)?\s*\)$/i.test(style.color)
+      && !/\/\s*0(?:\.0+)?%?\s*\)$/i.test(style.color);
   }
 
   function readTextLayer(layer) {
@@ -83,8 +91,9 @@ export function readScribdDocument(expectedId) {
       const node = walker.currentNode;
       if (!node.textContent.trim() || !isReadable(node.parentElement)) continue;
       range.selectNodeContents(node);
-      const firstLine = range.getClientRects()[0];
-      const lastLine = range.getClientRects()[range.getClientRects().length - 1];
+      const rects = range.getClientRects();
+      const firstLine = rects[0];
+      const lastLine = rects[rects.length - 1];
       if (!firstLine) continue;
       if (previousLine && Math.abs(previousLine.top - firstLine.top) > 1) {
         text += "\n";
@@ -101,9 +110,9 @@ export function readScribdDocument(expectedId) {
     .filter(page => !page.parentElement.closest(".outer_page, .page[data-page-number]"));
   const pages = [];
   for (const [index, page] of sourcePages.entries()) {
-    const layer = page.querySelector(".text_layer, .text-layer, .textLayer");
-    if (!layer || !isReadable(page)) continue;
-    const text = readTextLayer(layer);
+    if (!isReadable(page)) continue;
+    const layers = [...page.querySelectorAll(".text_layer, .text-layer, .textLayer")];
+    const text = layers.map(readTextLayer).filter(Boolean).join("\n");
     if (!text) continue;
     const number = page.dataset.pageNumber ?? page.id.match(/\d+$/)?.[0] ?? String(index + 1);
     pages.push({ number: /^\d+$/.test(number) ? number : String(index + 1), text });
