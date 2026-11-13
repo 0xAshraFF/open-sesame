@@ -16,8 +16,8 @@ export function readScribdDocument(expectedId) {
   const viewer = document.querySelector(
     ".document_scroller, #document_scroller, #pdf_document_scroll_container"
   );
-  const title = document.querySelector('[data-e2e="doc_page_title"], h1')?.innerText
-    ?.trim() || document.title.replace(/\s*\|\s*Scribd\s*$/i, "").trim() || `Scribd ${id}`;
+  const title = document.querySelector('[data-e2e="doc_page_title"]')?.innerText?.trim()
+    || document.title.replace(/\s*\|\s*Scribd\s*$/i, "").trim() || `Scribd ${id}`;
   if (!viewer) return { title, pages: [], omitted: 0 };
 
   const restrictions = [
@@ -110,3 +110,4 @@ export function readScribdDocument(expectedId) {
   }
   return { title, pages, omitted: sourcePages.length - pages.length };
 }
+
