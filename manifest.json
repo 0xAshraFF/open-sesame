@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Open Sesame",
+  "version": "1.0.0",
+  "description": "Export readable Scribd pages as PDF, HTML, or Markdown.",
+  "minimum_chrome_version": "116",
+  "permissions": ["activeTab", "scripting", "downloads"],
+  "action": {
+    "default_title": "Open Sesame",
+    "default_popup": "popup.html"
+  }
+}

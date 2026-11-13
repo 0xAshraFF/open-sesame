@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Open Sesame</title>
+    <link rel="stylesheet" href="popup.css">
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Open Sesame</h1>
+      <p id="document-title" hidden></p>
+      <div class="formats" role="group" aria-label="Download format">
+        <button type="button" data-format="pdf" disabled>PDF</button>
+        <button type="button" data-format="html" disabled>HTML</button>
+        <button type="button" data-format="md" disabled>Markdown</button>
+      </div>
+      <p id="status" role="status">Checking this tab…</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light dark;
+  font: 14px/1.45 Inter, "Segoe UI", sans-serif;
+  background: #f8faf9;
+  color: #172923;
+}
+
+body {
+  margin: 0;
+  width: 320px;
+}
+
+main {
+  padding: 18px;
+}
+
+h1 {
+  font-size: 17px;
+  letter-spacing: -.025em;
+  margin: 0;
+}
+
+#document-title {
+  color: #536960;
+  font-size: 13px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr;
+  gap: 7px;
+  margin-top: 15px;
+}
+
+button {
+  background: #edf4f0;
+  border: 1px solid #c8d8d0;
+  border-radius: 7px;
+  color: #163d2f;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 5px;
+}
+
+button[data-format="pdf"] {
+  background: #175941;
+  border-color: #175941;
+  color: white;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(.93);
+}
+
+button:focus-visible {
+  outline: 2px solid #16875e;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+#status {
+  color: #536960;
+  font-size: 12px;
+  margin: 11px 0 0;
+  min-height: 35px;
+}
+
+#status[data-error] {
+  color: #a33636;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { background: #15221c; color: #f1f7f4; }
+  #document-title, #status { color: #b1c6ba; }
+  button { background: #263d32; border-color: #41594d; color: #f1f7f4; }
+  button[data-format="pdf"] { background: #297556; border-color: #297556; }
+  #status[data-error] { color: #ffaeae; }
+}
